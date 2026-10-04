@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox
 
 try:
     import ttkbootstrap as ttk
+    from ttkbootstrap.style import ThemeDefinition
     BOOTSTRAP_AVAILABLE = True
 except ImportError:
     from tkinter import ttk
@@ -31,6 +32,7 @@ except ImportError:
 
 import bilibili_downloader as bilibili
 import netease_client
+import netease_qrlogin
 from credential_store import CredentialStore, CredentialUnavailable
 from download_engine import DownloadEngine
 from download_history import load_completed
@@ -41,7 +43,7 @@ from download_models import (SOURCE_BILIBILI, SOURCE_NETEASE, STATUS_COMPLETED,
 from ncm_settings import save_settings, startup_settings
 
 APP_TITLE = "Music Cat"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
 GITHUB_URL = "https://github.com/FallRain0905/ncm-bilibili-cat"
 
 AGREEMENT_VERSION = 1
@@ -237,7 +239,13 @@ class ConverterEngine:
 
 
 class LoginDialog(tk.Toplevel):
-    """导入用户自己的 MUSIC_U 并验证；凭据只用 DPAPI 加密保存到本机。"""
+    """网易云登录对话框：默认扫码登录，可切换为手动粘贴 MUSIC_U。
+
+    凭据只用 Windows DPAPI 加密保存到本机；MUSIC_U 只在内存中传递，
+    不写入设置、日志或错误信息。
+    """
+
+    POLL_INTERVAL = 1.5
 
     def __init__(self, app):
         super().__init__(app)
@@ -247,9 +255,48 @@ class LoginDialog(tk.Toplevel):
         self.title("登录网易云")
         self.resizable(False, False)
         self.columnconfigure(0, weight=1)
-        padding = {"padx": 16, "pady": 8}
-        ttk.Label(self, text=(
-            "网易云的登录接口需要完整的浏览器环境，应用改用导入 MUSIC_U 的方式登录：\n\n"
+        self._mode = "qr"
+        self._qr_run_id = 0
+        self._qr_unikey = None
+        self._qr_stop = threading.Event()
+        padding = {"padx": 16, "pady": 6}
+
+        switcher = ttk.Frame(self)
+        switcher.grid(row=0, column=0, pady=(12, 0))
+        self.qr_mode_button = ttk.Button(switcher, text="扫码登录",
+                                         command=lambda: self.show_mode("qr"),
+                                         **_bootstyle("primary"))
+        self.qr_mode_button.pack(side="left", padx=4)
+        self.cookie_mode_button = ttk.Button(switcher, text="Cookie 粘贴",
+                                             command=lambda: self.show_mode("cookie"),
+                                             **_bootstyle("secondary-outline"))
+        self.cookie_mode_button.pack(side="left", padx=4)
+
+        # ---- 扫码登录区 ----
+        self.qr_frame = ttk.Frame(self)
+        self.qr_frame.grid(row=1, column=0, sticky="nsew", **padding)
+        self.qr_canvas = tk.Canvas(self.qr_frame, width=252, height=252,
+                                   bg="white", highlightthickness=0)
+        self.qr_canvas.pack(padx=10, pady=(6, 0))
+        self.qr_status = tk.StringVar(value="正在生成登录二维码…")
+        self.qr_status_label = ttk.Label(self.qr_frame, textvariable=self.qr_status,
+                                         wraplength=320, justify="center")
+        self.qr_status_label.pack(pady=(10, 0))
+        self.qr_refresh_button = ttk.Button(self.qr_frame, text="刷新二维码",
+                                            command=self.start_qr_login,
+                                            **_bootstyle("secondary-outline"))
+        self.qr_refresh_button.pack(pady=(8, 0))
+        ttk.Label(self.qr_frame, text=(
+            "打开网易云音乐 App → 扫一扫，扫描上方二维码并确认登录。\n"
+            "登录凭据仅保存在本机（Windows DPAPI 加密），不会上传。"
+        ), wraplength=340, justify="center").pack(pady=(8, 2))
+
+        # ---- Cookie 粘贴区 ----
+        self.cookie_frame = ttk.Frame(self)
+        self.cookie_frame.grid(row=1, column=0, sticky="nsew", **padding)
+        self.cookie_frame.columnconfigure(0, weight=1)
+        ttk.Label(self.cookie_frame, text=(
+            "无法扫码时，可手动导入自己账号的 MUSIC_U：\n\n"
             "方法一（推荐）：使用浏览器插件 Cookie Control Center（或任意 Cookie 管理插件，"
             "如 Cookie-Editor）——\n"
             "  1. 在浏览器登录 music.163.com；\n"
@@ -257,21 +304,120 @@ class LoginDialog(tk.Toplevel):
             "  3. 复制它的 Value，粘贴到下方。\n\n"
             "方法二：按 F12 打开开发者工具 → “应用/存储” → Cookie → https://music.163.com，"
             "找到名为 MUSIC_U 的条目并复制它的值（条目较多，建议用开发者工具的筛选框）。\n\n"
-            "凭据仅保存在本机，使用 Windows DPAPI 加密，不会写入设置文件或日志。"
-        ), wraplength=500, justify="left").grid(row=0, column=0, sticky="w", **padding)
-        self.value_entry = ttk.Entry(self, show="*", width=64)
-        self.value_entry.grid(row=1, column=0, sticky="ew", **padding)
+            "凭据仅保存在本机（Windows DPAPI 加密），不会写入设置文件或日志。"
+        ), wraplength=520, justify="left").grid(row=0, column=0, sticky="w")
+        self.value_entry = ttk.Entry(self.cookie_frame, show="*", width=64)
+        self.value_entry.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self.message = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.message, wraplength=480,
-                  justify="left").grid(row=2, column=0, sticky="w", **padding)
-        buttons = ttk.Frame(self)
-        buttons.grid(row=3, column=0, sticky="e", **padding)
+        ttk.Label(self.cookie_frame, textvariable=self.message, wraplength=500,
+                  justify="left").grid(row=2, column=0, sticky="w")
+        buttons = ttk.Frame(self.cookie_frame)
+        buttons.grid(row=3, column=0, sticky="e", pady=(6, 0))
         ttk.Button(buttons, text="保存并登录", command=self.apply).pack(side="left")
-        ttk.Button(buttons, text="取消", command=self.destroy).pack(side="left", padx=(8, 0))
-        self.value_entry.focus_set()
-        self.transient(app)
-        self.grab_set()
+        ttk.Button(buttons, text="关闭", command=self.close).pack(side="left", padx=(8, 0))
 
+        self.transient(app)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.grab_set()
+        self.show_mode("qr")
+        self.start_qr_login()
+
+    # ---- 模式切换 ----
+    def show_mode(self, mode: str):
+        self._mode = mode
+        if mode == "qr":
+            self.cookie_frame.grid_remove()
+            self.qr_frame.grid()
+            self.qr_mode_button.configure(**_bootstyle("primary"))
+            self.cookie_mode_button.configure(**_bootstyle("secondary-outline"))
+        else:
+            self.qr_frame.grid_remove()
+            self.cookie_frame.grid()
+            self.qr_mode_button.configure(**_bootstyle("secondary-outline"))
+            self.cookie_mode_button.configure(**_bootstyle("primary"))
+            self.value_entry.focus_set()
+
+    # ---- 扫码登录 ----
+    def start_qr_login(self):
+        """生成新的登录二维码并开始轮询扫码状态。"""
+        self._qr_run_id += 1
+        run_id = self._qr_run_id
+        self.set_qr_status("正在生成登录二维码…", "secondary")
+        threading.Thread(target=self._qr_bootstrap, args=(run_id,), daemon=True).start()
+
+    def _qr_bootstrap(self, run_id: int):
+        try:
+            unikey = netease_qrlogin.create_qr_key()
+            url = netease_qrlogin.qr_login_url(unikey)
+        except netease_qrlogin.QRLoginError as exc:
+            self.app.emit("qrlogin_status", self, f"二维码生成失败：{exc}", "danger")
+            return
+        if run_id != self._qr_run_id or self._qr_stop.is_set():
+            return
+        self._qr_unikey = unikey
+        self.app.emit("qrlogin_qr", self, url)
+        while not self._qr_stop.is_set() and run_id == self._qr_run_id:
+            try:
+                result = netease_qrlogin.check_qr_key(unikey)
+            except netease_qrlogin.QRLoginError as exc:
+                self.app.emit("qrlogin_status", self, f"扫码登录异常：{exc}", "danger")
+                return
+            code = result["code"]
+            if code == netease_qrlogin.QR_SUCCESS:
+                self.app.emit("qrlogin_status", self,
+                              netease_qrlogin.QR_STATUS_LABELS[code], "success")
+                threading.Thread(target=self._validate,
+                                 args=(result["music_u"],), daemon=True).start()
+                return
+            label = netease_qrlogin.QR_STATUS_LABELS.get(code, result["message"] or "等待扫码…")
+            kind = {netease_qrlogin.QR_EXPIRED: "warning",
+                    netease_qrlogin.QR_SCANNED: "info"}.get(code, "secondary")
+            self.app.emit("qrlogin_status", self, label, kind)
+            if code == netease_qrlogin.QR_EXPIRED:
+                return
+            self._qr_stop.wait(self.POLL_INTERVAL)
+
+    def render_qr(self, url: str):
+        """把二维码绘制到画布（白底深色码，保证扫码识别率）。"""
+        try:
+            import qrcode
+            code = qrcode.QRCode(border=0, box_size=7)
+            code.add_data(url)
+            code.make(fit=True)
+            matrix = code.get_matrix()
+        except Exception as exc:
+            self.set_qr_status(f"二维码渲染失败：{exc}。可切换到“Cookie 粘贴”方式登录。", "danger")
+            return
+        box = 7
+        pad = 3
+        size = (len(matrix) + pad * 2) * box
+        self.qr_canvas.configure(width=size, height=size)
+        self.qr_canvas.delete("all")
+        for row_index, row in enumerate(matrix):
+            for col_index, filled in enumerate(row):
+                if filled:
+                    x0 = (col_index + pad) * box
+                    y0 = (row_index + pad) * box
+                    self.qr_canvas.create_rectangle(x0, y0, x0 + box, y0 + box,
+                                                    fill="#101216", width=0)
+
+    def set_qr_status(self, text: str, kind: str):
+        self.qr_status.set(text)
+        if BOOTSTRAP_AVAILABLE:
+            try:
+                self.qr_status_label.configure(bootstyle=kind)
+            except tk.TclError:
+                pass
+
+    def show_validation_error(self, text: str):
+        """校验失败时把原因显示在当前模式的界面上。"""
+        if self._mode == "qr":
+            self.set_qr_status(text, "danger")
+            self.qr_refresh_button.configure(state="normal")
+        else:
+            self.message.set(text)
+
+    # ---- Cookie 粘贴登录 ----
     def apply(self):
         value = self.value_entry.get().strip()
         if not value:
@@ -290,6 +436,17 @@ class LoginDialog(tk.Toplevel):
         except Exception as exc:
             nickname, error = None, str(exc)
         self.app.emit("login_dialog_result", self, value, nickname, error)
+
+    def close(self):
+        self._qr_stop.set()
+        self.destroy()
+
+    def destroy(self):
+        self._qr_stop.set()
+        try:
+            super().destroy()
+        except tk.TclError:
+            pass
 
 
 class LicenseDialog:
@@ -1339,13 +1496,13 @@ class App(_AppBase):
                 pass
         elif error:
             if dialog.winfo_exists():
-                dialog.message.set(f"验证失败：{error}\n请检查网络后重试。")
+                dialog.show_validation_error(f"验证失败：{error}\n请检查网络后重试。")
                 for widget in dialog.winfo_children():
                     if isinstance(widget, ttk.Button):
                         widget.configure(state="normal")
         else:
             if dialog.winfo_exists():
-                dialog.message.set("MUSIC_U 无效或已过期，请重新复制。")
+                dialog.show_validation_error("MUSIC_U 无效或已过期，请重新获取。")
                 for widget in dialog.winfo_children():
                     if isinstance(widget, ttk.Button):
                         widget.configure(state="normal")
@@ -1507,6 +1664,20 @@ class App(_AppBase):
                         self.apply_login_state(values[0], values[1])
                     elif kind == "login_dialog_result":
                         self.on_login_dialog_result(values[0], values[1], values[2], values[3])
+                    elif kind == "qrlogin_qr":
+                        dialog, url = values
+                        try:
+                            if dialog.winfo_exists():
+                                dialog.render_qr(url)
+                        except tk.TclError:
+                            pass
+                    elif kind == "qrlogin_status":
+                        dialog, text, status_kind = values
+                        try:
+                            if dialog.winfo_exists():
+                                dialog.set_qr_status(text, status_kind)
+                        except tk.TclError:
+                            pass
                     elif kind == "download_done":
                         counts, failures, stopped = values
                         self.download_counts.set(

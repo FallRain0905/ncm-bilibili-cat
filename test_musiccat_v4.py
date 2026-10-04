@@ -518,5 +518,78 @@ class LicenseGateTests(unittest.TestCase):
             factory.assert_not_called()
 
 
+class LoginDialogTests(unittest.TestCase):
+    """登录对话框：扫码模式与 Cookie 模式切换，二维码渲染与关闭清理。"""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def _open_dialog(self):
+        import music_cat_app as mca
+        context = patch.dict(os.environ, {"LOCALAPPDATA": str(self.root / "appdata"),
+                                          "APPDATA": str(self.root / "roaming")})
+        context.start()
+        self.addCleanup(context.stop)
+        app = mca.App()
+        self.addCleanup(self._close, app)
+        app.withdraw()
+        with patch.object(mca.netease_qrlogin, "create_qr_key", return_value="test-unikey"):
+            dialog = mca.LoginDialog(app)
+        self.addCleanup(self._close_dialog, dialog)
+        return app, mca, dialog
+
+    @staticmethod
+    def _close(app):
+        if app.winfo_exists():
+            app.close()
+
+    @staticmethod
+    def _close_dialog(dialog):
+        try:
+            if dialog.winfo_exists():
+                dialog.close()
+        except Exception:
+            pass
+
+    def test_mode_switch_and_defaults(self):
+        app, mca, dialog = self._open_dialog()
+        dialog.update()
+        self.assertEqual(dialog._mode, "qr")
+        self.assertTrue(dialog.qr_frame.grid_info())
+        dialog.show_mode("cookie")
+        self.assertEqual(dialog._mode, "cookie")
+        self.assertFalse(dialog.qr_frame.grid_info())
+        self.assertTrue(dialog.cookie_frame.grid_info())
+        dialog.show_mode("qr")
+        self.assertEqual(dialog._mode, "qr")
+        self.assertFalse(dialog.cookie_frame.grid_info())
+
+    def test_qr_key_requested_and_render_draws(self):
+        app, mca, dialog = self._open_dialog()
+        dialog.update()
+        self.assertEqual(dialog._qr_unikey, "test-unikey")
+        dialog.render_qr("https://music.163.com/login?keyuuid=test-unikey")
+        self.assertTrue(dialog.qr_canvas.find_all(), "二维码应绘制出模块矩形")
+
+    def test_close_stops_polling(self):
+        app, mca, dialog = self._open_dialog()
+        dialog.update()
+        dialog.close()
+        self.assertTrue(dialog._qr_stop.is_set())
+        self.assertFalse(dialog.winfo_exists())
+
+    def test_validation_error_routes_to_active_mode(self):
+        app, mca, dialog = self._open_dialog()
+        dialog.update()
+        dialog.show_mode("qr")
+        dialog.show_validation_error("验证失败：测试")
+        self.assertIn("验证失败", dialog.qr_status.get())
+        dialog.show_mode("cookie")
+        dialog.show_validation_error("验证失败：测试二")
+        self.assertIn("测试二", dialog.message.get())
+
+
 if __name__ == "__main__":
     unittest.main()

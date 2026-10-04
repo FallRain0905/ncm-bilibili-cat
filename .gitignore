@@ -31,3 +31,4 @@ desktop.ini
 
 # ZCode 本地计划文件
 .zcode/
+probe_*.py

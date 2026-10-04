@@ -286,6 +286,7 @@ class LoginFlowTests(unittest.TestCase):
                     app.open_login_dialog()
                     dialog = next(child for child in app.winfo_children()
                                   if isinstance(child, LoginDialog))
+                    dialog.show_mode("cookie")
                     dialog._validate("bad-cookie")
                     app.process_events()
                 self.assertIsNone(app.netease_cookie())

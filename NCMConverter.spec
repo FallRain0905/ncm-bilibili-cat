@@ -12,7 +12,7 @@ analysis = Analysis(
         (str(project / "tools" / "ffmpeg-9.0.2-essentials_build" / "bin" / "ffprobe.exe"), "bin"),
     ],
     datas=[],
-    hiddenimports=["tkinterdnd2", "yt_dlp"],
+    hiddenimports=["tkinterdnd2", "yt_dlp", "qrcode"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
