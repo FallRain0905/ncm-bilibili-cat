@@ -40,41 +40,9 @@ from download_queue import load_queue, save_queue
 from download_models import (SOURCE_BILIBILI, SOURCE_NETEASE, STATUS_COMPLETED,
                              STATUS_FAILED, STATUS_PENDING, STATUS_SKIPPED,
                              STATUS_STOPPED, DownloadJob, TrackInfo, safe_filename)
+from app_info import (APP_TITLE, APP_VERSION, AGREEMENT_TEXT,
+                      AGREEMENT_VERSION, DISCLAIMER_TEXT, GITHUB_URL)
 from ncm_settings import save_settings, startup_settings
-
-APP_TITLE = "Music Cat"
-APP_VERSION = "1.2.0"
-GITHUB_URL = "https://github.com/FallRain0905/ncm-bilibili-cat"
-
-AGREEMENT_VERSION = 1
-AGREEMENT_TEXT = f"""Music Cat（ncm-bilibili-cat）用户协议与使用条款
-
-一、开源声明
-本项目为开源软件，源码托管于：
-{GITHUB_URL}
-欢迎学习、研究、改进与反馈问题。
-
-二、禁止商业用途
-本软件仅供个人学习与非商业用途使用。严禁倒卖、收费分发、捆绑销售，
-或以任何形式将本软件用于商业牟利。再分发时必须保留本协议与原作者署名，
-修改后的版本同样受本协议约束。
-
-三、内容与合规
-1. 本软件仅允许下载：你本人登录自己的网易云账号后有权收听/下载的歌曲，
-   以及你自己有权访问的 Bilibili 视频音频。
-2. 请勿利用本软件获取未授权内容或侵犯他人版权；由此产生的一切责任由使用者自行承担。
-3. 本软件不破解、不绕过任何平台的会员、付费或其他访问控制，也不提供第三方替代音源。
-
-四、免责声明
-1. 本软件与网易云音乐、Bilibili 官方无关，仅是一个第三方个人学习项目。
-2. 通过本软件下载内容的版权归原权利人所有，仅供个人学习、研究欣赏之用，
-   请尊重版权、支持正版。
-3. 使用本软件产生的一切风险与后果由使用者自行承担；作者不对任何直接或间接
-   损失负责，也不对任何第三方内容承担责任。
-4. 第三方组件的许可信息见随附的《第三方组件声明》（THIRD_PARTY_NOTICES）。
-
-点击“同意并继续”即表示你已阅读、理解并接受以上全部条款。
-"""
 
 QUALITY_CHOICES = {"最佳": "0", "320kbps": "320", "192kbps": "192", "128kbps": "128"}
 
@@ -620,10 +588,7 @@ class App(_AppBase):
         self.build_manage_page()
         self.build_download_page()
         self.build_playlist_page()
-        disclaimer = ttk.Label(
-            self, text="免责声明：本工具仅供个人学习交流，禁止倒卖与商业用途；下载内容的版权归原权利人所有，"
-                       "请尊重版权、支持正版；本工具与网易云音乐、Bilibili 官方无关，仅限下载本人有权访问的内容。",
-            foreground="#9aa0a6")
+        disclaimer = ttk.Label(self, text=DISCLAIMER_TEXT, foreground="#9aa0a6")
         disclaimer.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 4))
         self.disclaimer_label = disclaimer
 
