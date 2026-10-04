@@ -4,6 +4,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from datetime import datetime
@@ -335,7 +336,7 @@ class LoginDialog(tk.Toplevel):
                 self.app.emit("qrlogin_status", self,
                               netease_qrlogin.QR_STATUS_LABELS[code], "success")
                 threading.Thread(target=self._validate,
-                                 args=(result["music_u"],), daemon=True).start()
+                                 args=(result["music_u"], True), daemon=True).start()
                 return
             label = netease_qrlogin.QR_STATUS_LABELS.get(code, result["message"] or "等待扫码…")
             kind = {netease_qrlogin.QR_EXPIRED: "warning",
@@ -397,13 +398,24 @@ class LoginDialog(tk.Toplevel):
                 widget.configure(state="disabled")
         threading.Thread(target=self._validate, args=(value,), daemon=True).start()
 
-    def _validate(self, value: str):
-        try:
-            nickname = netease_client.fetch_user_account(value)
-            error = ""
-        except Exception as exc:
-            nickname, error = None, str(exc)
-        self.app.emit("login_dialog_result", self, value, nickname, error)
+    def _validate(self, value: str, trust_cookie: bool = False):
+        """校验凭据并上报结果。
+
+        trust_cookie=True（扫码登录）：凭据由网易云登录流程直接签发，
+        昵称验证失败（多为网络抖动）不再丢弃凭据，仍会保存。
+        网络类异常自动重试，避免一次抖动导致登录失败。
+        """
+        nickname, error = None, ""
+        for attempt in range(3):
+            try:
+                nickname = netease_client.fetch_user_account(value)
+                error = ""
+                break
+            except Exception as exc:
+                error = str(exc)
+                if attempt < 2:
+                    time.sleep(1.0)
+        self.app.emit("login_dialog_result", self, value, nickname, error, trust_cookie)
 
     def close(self):
         self._qr_stop.set()
@@ -1445,7 +1457,8 @@ class App(_AppBase):
             return
         LoginDialog(self)
 
-    def on_login_dialog_result(self, dialog, value: str, nickname: str | None, error: str):
+    def on_login_dialog_result(self, dialog, value: str, nickname: str | None, error: str,
+                               trust_cookie: bool = False):
         if nickname is not None:
             try:
                 self.credential_store.save({"music_u": value})
@@ -1455,6 +1468,21 @@ class App(_AppBase):
             self.apply_login_state(nickname, "")
             self.append_log(f"网易云登录成功：{nickname or '用户'}")
             self.append_download_log(f"网易云登录成功：{nickname or '用户'}，凭据已加密保存。")
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+        elif error and trust_cookie:
+            # 扫码登录：凭据已由网易云登录流程直接签发，昵称验证失败
+            # （多为网络抖动）不影响凭据有效性，仍然保存。
+            try:
+                self.credential_store.save({"music_u": value})
+            except CredentialUnavailable as exc:
+                messagebox.showerror(APP_TITLE, f"凭据保存失败：{exc}")
+                return
+            self.apply_login_state(None, error)
+            self.append_log("网易云扫码登录完成，凭据已加密保存（昵称验证暂时失败）。")
+            self.append_download_log("网易云扫码登录完成，凭据已加密保存（昵称验证暂时失败）。")
             try:
                 dialog.destroy()
             except tk.TclError:
@@ -1628,7 +1656,9 @@ class App(_AppBase):
                     elif kind == "login_check_result":
                         self.apply_login_state(values[0], values[1])
                     elif kind == "login_dialog_result":
-                        self.on_login_dialog_result(values[0], values[1], values[2], values[3])
+                        self.on_login_dialog_result(values[0], values[1], values[2],
+                                                    values[3],
+                                                    trust_cookie=values[4] if len(values) > 4 else False)
                     elif kind == "qrlogin_qr":
                         dialog, url = values
                         try:

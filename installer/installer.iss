@@ -2,7 +2,7 @@
 ; 构建：在项目根目录运行 build_installer.ps1
 
 #define MyAppName "MusicCat"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 
 [Setup]
 AppId={{4C6A2E91-8B7D-4E3F-9A55-C2D10F7B8E44}

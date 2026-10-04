@@ -295,6 +295,28 @@ class LoginFlowTests(unittest.TestCase):
                 if app.winfo_exists():
                     app.close()
 
+    def test_qr_trust_cookie_saved_even_when_validation_fails(self):
+        """扫码登录：昵称验证遇到网络异常时凭据仍要保存，不能丢弃。"""
+        from music_cat_app import App, LoginDialog
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(self.root / "appdata"),
+                                     "APPDATA": str(self.root / "roaming")}):
+            app = App()
+            try:
+                app.withdraw()
+                with patch.object(nc, "fetch_user_account",
+                                  side_effect=Exception("网络请求失败：模拟抖动")):
+                    app.open_login_dialog()
+                    dialog = next(child for child in app.winfo_children()
+                                  if isinstance(child, LoginDialog))
+                    dialog._validate("qr-issued-cookie", trust_cookie=True)
+                    app.process_events()
+                self.assertEqual(app.netease_cookie(), "qr-issued-cookie")
+                self.assertIn("已保存登录凭据", app.login_status.get())
+                self.assertFalse(dialog.winfo_exists())
+            finally:
+                if app.winfo_exists():
+                    app.close()
+
 
 if __name__ == "__main__":
     unittest.main()
