@@ -319,6 +319,9 @@ class LicenseDialog:
                    **_bootstyle("danger-outline")).pack(side="right", padx=(4, 0))
         ttk.Button(buttons, text="同意并继续", command=self.accept,
                    **_bootstyle("success")).pack(side="right")
+        self.dialog.grab_set()
+        self.dialog.lift()
+        self.dialog.focus_force()
 
     def accept(self):
         self.accepted = True
@@ -1698,10 +1701,10 @@ class App(_AppBase):
 
 
 if __name__ == "__main__":
+    # 主窗口保持可见（不要 withdraw：Tk 的 transient 子窗口在父窗口隐藏时不可见，
+    # 曾导致协议弹窗不出现、用户反复启动堆积多个实例）。
     app = App()
-    app.withdraw()
     if app.ensure_license_agreed():
-        app.deiconify()
         app.mainloop()
     else:
         app.destroy()
