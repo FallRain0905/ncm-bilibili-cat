@@ -56,9 +56,19 @@
 - `test_qt_shell.py`：6 项（离屏加载、六页存在、导航/主题持久化、协议门、调色板切换）。
 - 实机验证：Windows 真实窗口启动正常（标题 Music Cat v1.2.0）。
 
-## 6. 剩余风险与下一阶段入口
+## 6. 阶段 2 已交付（workers / models 基建）
+
+- `qt_bridge/workers.py`：
+  - `BaseWorker`：`execute()` 子类实现；异常必转 `error` 信号，`finished` 必发（busy 必恢复）；停止用 `threading.Event`（幂等）。
+  - `FunctionWorker`：一次性任务的 callable 适配器。
+  - `WorkerSession`：单工位会话——同一领域同时最多一个任务，忙时 `start()` 拒绝并发 error；收尾连接（`thread.finished → _cleanup`）**必须在 `start()` 时挂好**，若在 `worker.finished` 的排队槽里再挂会错过线程退出（竞态，已修复并写注释）；`_cleanup` 先 `thread.wait()` 再入 graveyard，避免 GC 销毁运行中的 QThread。
+- `qt_bridge/models.py`：`ListModelBase`（dict 行 + 声明式角色、稳定 ID、严格 begin/end 通知）+ `DownloadTaskModel` / `PlaylistSongModel` / `MusicRowModel`（阶段 4-6 直接可用）。
+- 测试：`test_qt_models.py`（10 项）、`test_qt_workers.py`（6 项，信号计数 + processEvents 轮询；**不使用 QSignalSpy**——PySide6 6.11 下其 wait 与跨线程收尾链有兼容问题，探针确认生产代码正常）。全量 **141 项通过**。
+- 阶段 3 前置完成：`ConverterEngine`/`find_tool`/`expected_target`/`format_size`/`app_root` 抽出为 `converter_engine.py`（Tk 版经导入引用，125 项回归通过，零行为变更）。
+- 已知陷阱（备忘）：unittest 收尾阶段 GC 可能销毁刚结束的 QThread（`thread.wait()` 已在 `_cleanup` 兜底）；测试断言失败路径必须先泵事件循环等线程收尾再释放会话。
+
+## 7. 剩余风险与下一阶段入口
 
 - 风险 1：PyInstaller 打包 QML/Qt 插件清单（阶段 8 才做），当前源码运行验证充分、打包路径未验证。
-- 风险 2：转换引擎仍内嵌于 music_cat_app.py，阶段 3 前需抽出为独立模块（不复制、不回归）。
-- 风险 3：Tk 与 Qt 共享 settings.json / queue.json / library.sqlite3，两侧写入格式必须保持白名单兼容（已由 ncm_settings 保证）。
-- 下一阶段（阶段 2）：`qt_bridge/workers.py`（BaseWorker/QThread）、`qt_bridge/models.py`、各控制器最小实现与 UI 无关测试。
+- 风险 2：Tk 与 Qt 共享 settings.json / queue.json / library.sqlite3，两侧写入格式必须保持白名单兼容（已由 ncm_settings 保证）。
+- 下一阶段（阶段 3）：`ConversionController`（包装 converter_engine.ConverterEngine + WorkerSession）+ `ConvertPage.qml`（输入/输出/进度/日志）+ QML 原生拖放。
