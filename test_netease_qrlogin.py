@@ -5,37 +5,57 @@ from unittest.mock import patch
 import netease_qrlogin as qr
 
 
-def fake_fetch(payload, set_cookie=None):
-    def _impl(url, timeout=10.0):
-        return payload, list(set_cookie or [])
-    return _impl
+class Recorder:
+    """记录 _fetch 调用并返回预设响应。"""
+
+    def __init__(self, payload, set_cookie=None):
+        self.payload = payload
+        self.set_cookie = set_cookie or []
+        self.calls = []
+
+    def __call__(self, url, req_payload, timeout=10.0):
+        self.calls.append((url, req_payload))
+        return self.payload, list(self.set_cookie)
 
 
 class CreateQrKeyTests(unittest.TestCase):
     def test_returns_unikey(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 200, "unikey": "abc-123"})):
+        rec = Recorder({"code": 200, "unikey": "abc-123"})
+        with patch.object(qr, "_fetch", rec):
             self.assertEqual(qr.create_qr_key(), "abc-123")
+        url, payload = rec.calls[0]
+        self.assertEqual(url, qr.UNIKEY_URL)
+        self.assertEqual(payload, {"type": 3})
 
     def test_error_on_bad_code(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 500})):
+        with patch.object(qr, "_fetch", Recorder({"code": 500})):
             with self.assertRaises(qr.QRLoginError):
                 qr.create_qr_key()
 
-    def test_qr_login_url_format(self):
+    def test_qr_url_uses_codekey(self):
         url = qr.qr_login_url("abc-123")
-        self.assertEqual(url, "https://music.163.com/login?keyuuid=abc-123")
+        self.assertEqual(url, "https://music.163.com/login?codekey=abc-123")
+
+    def test_type_3_means_app_native_confirm(self):
+        # type=1 会打开网页登录页（用户实测），必须固定为 3。
+        self.assertEqual(qr.QR_TYPE, 3)
+        self.assertIn("type", qr.QR_STATUS_LABELS if False else {}) if False else None
 
 
 class CheckQrKeyTests(unittest.TestCase):
     def test_waiting(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 801, "message": "等待扫码"})):
+        rec = Recorder({"code": 801, "message": "等待扫码"})
+        with patch.object(qr, "_fetch", rec):
             result = qr.check_qr_key("key")
         self.assertEqual(result["code"], qr.QR_WAITING)
         self.assertIsNone(result["music_u"])
         self.assertEqual(result["message"], "等待扫码")
+        url, payload = rec.calls[0]
+        self.assertEqual(url, qr.CHECK_URL)
+        self.assertEqual(payload, {"key": "key", "type": 3})
 
     def test_scanned(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 802, "message": "扫码确认"})):
+        with patch.object(qr, "_fetch", Recorder({"code": 802, "message": "扫码确认"})):
             result = qr.check_qr_key("key")
         self.assertEqual(result["code"], qr.QR_SCANNED)
 
@@ -45,31 +65,20 @@ class CheckQrKeyTests(unittest.TestCase):
             "MUSIC_U=cookievalue123; Path=/; Domain=.music.163.com; HttpOnly",
             "MUSIC_SNS=xyz; Path=/",
         ]
-        with patch.object(qr, "_fetch", fake_fetch({"code": 803}, set_cookie)):
+        with patch.object(qr, "_fetch", Recorder({"code": 803}, set_cookie)):
             result = qr.check_qr_key("key")
         self.assertEqual(result["code"], qr.QR_SUCCESS)
         self.assertEqual(result["music_u"], "cookievalue123")
 
     def test_success_without_music_u_raises(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 803}, [])):
+        with patch.object(qr, "_fetch", Recorder({"code": 803}, [])):
             with self.assertRaises(qr.QRLoginError):
                 qr.check_qr_key("key")
 
     def test_expired(self):
-        with patch.object(qr, "_fetch", fake_fetch({"code": 800, "message": "登录二维码已过期"})):
+        with patch.object(qr, "_fetch", Recorder({"code": 800, "message": "登录二维码已过期"})):
             result = qr.check_qr_key("key")
         self.assertEqual(result["code"], qr.QR_EXPIRED)
-
-    def test_url_is_quoted(self):
-        seen = {}
-
-        def impl(url, timeout=10.0):
-            seen["url"] = url
-            return {"code": 801}, []
-
-        with patch.object(qr, "_fetch", impl):
-            qr.check_qr_key("key with space")
-        self.assertIn("key=key%20with%20space", seen["url"])
 
 
 class ExtractMusicUTests(unittest.TestCase):
@@ -89,8 +98,8 @@ class ExtractMusicUTests(unittest.TestCase):
     def test_never_logs_cookie(self):
         # 防回归：任何错误消息都不应包含 MUSIC_U 的值。
         secret = "topsecretcookievalue"
-        with patch.object(qr, "_fetch", fake_fetch({"code": 803},
-                                                   [f"MUSIC_U={secret}; Path=/"])):
+        with patch.object(qr, "_fetch", Recorder({"code": 803},
+                                                 [f"MUSIC_U={secret}; Path=/"])):
             try:
                 qr.check_qr_key("key")
             except qr.QRLoginError as exc:

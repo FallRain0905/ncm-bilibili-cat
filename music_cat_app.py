@@ -137,9 +137,9 @@ class LoginDialog(tk.Toplevel):
                                          **_bootstyle("secondary-outline"))
         self.qr_copy_button.pack(pady=(4, 0))
         ttk.Label(self.qr_frame, text=(
-            "推荐：用网易云音乐 App 的「扫一扫」扫描，并在手机上确认登录。\n"
-            "若手机打开的是登录页（如用相机/微信扫码），在手机上完成登录同样有效；\n"
-            "页面报 Cookie/网络错误时，可复制上方链接到手机浏览器打开登录。\n"
+            "用网易云音乐 App 的「扫一扫」扫描，手机会弹出确认页，点击确认即可。\n"
+            "若手机打开的是网页登录页，在手机上完成登录同样有效；\n"
+            "也可复制链接发送到手机，用浏览器打开登录。\n"
             "凭据仅保存在本机（Windows DPAPI 加密），不会上传。"
         ), wraplength=360, justify="center").pack(pady=(8, 2))
 

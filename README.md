@@ -80,5 +80,5 @@ python -m pip install -r requirements.txt
 .\build_installer.ps1
 ```
 
-产物为 `installer\MusicCat-1.2.2-setup.exe`（中文安装向导、可选桌面快捷方式、开始菜单、卸载器，含 `THIRD_PARTY_NOTICES.md` 第三方声明）。安装包默认按当前用户安装（无需管理员），也可在向导中选择为所有用户安装。
+产物为 `installer\MusicCat-1.2.3-setup.exe`（中文安装向导、可选桌面快捷方式、开始菜单、卸载器，含 `THIRD_PARTY_NOTICES.md` 第三方声明）。安装包默认按当前用户安装（无需管理员），也可在向导中选择为所有用户安装。
 
