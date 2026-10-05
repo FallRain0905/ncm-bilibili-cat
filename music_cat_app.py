@@ -103,6 +103,7 @@ class LoginDialog(tk.Toplevel):
         self._mode = "qr"
         self._qr_run_id = 0
         self._qr_unikey = None
+        self._qr_url = None
         self._qr_stop = threading.Event()
         padding = {"padx": 16, "pady": 6}
 
@@ -131,10 +132,16 @@ class LoginDialog(tk.Toplevel):
                                             command=self.start_qr_login,
                                             **_bootstyle("secondary-outline"))
         self.qr_refresh_button.pack(pady=(8, 0))
+        self.qr_copy_button = ttk.Button(self.qr_frame, text="复制二维码链接",
+                                         command=self.copy_qr_url,
+                                         **_bootstyle("secondary-outline"))
+        self.qr_copy_button.pack(pady=(4, 0))
         ttk.Label(self.qr_frame, text=(
-            "打开网易云音乐 App → 扫一扫，扫描上方二维码并确认登录。\n"
-            "登录凭据仅保存在本机（Windows DPAPI 加密），不会上传。"
-        ), wraplength=340, justify="center").pack(pady=(8, 2))
+            "推荐：用网易云音乐 App 的「扫一扫」扫描，并在手机上确认登录。\n"
+            "若手机打开的是登录页（如用相机/微信扫码），在手机上完成登录同样有效；\n"
+            "页面报 Cookie/网络错误时，可复制上方链接到手机浏览器打开登录。\n"
+            "凭据仅保存在本机（Windows DPAPI 加密），不会上传。"
+        ), wraplength=360, justify="center").pack(pady=(8, 2))
 
         # ---- Cookie 粘贴区 ----
         self.cookie_frame = ttk.Frame(self)
@@ -224,6 +231,7 @@ class LoginDialog(tk.Toplevel):
 
     def render_qr(self, url: str):
         """把二维码绘制到画布（白底深色码，保证扫码识别率）。"""
+        self._qr_url = url
         try:
             import qrcode
             code = qrcode.QRCode(border=0, box_size=7)
@@ -253,6 +261,16 @@ class LoginDialog(tk.Toplevel):
                 self.qr_status_label.configure(bootstyle=kind)
             except tk.TclError:
                 pass
+
+    def copy_qr_url(self):
+        """把二维码链接复制到剪贴板，便于发送到手机浏览器打开登录。"""
+        url = getattr(self, "_qr_url", "")
+        if not url:
+            self.set_qr_status("二维码尚未生成，请先刷新。", "warning")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(url)
+        self.set_qr_status("链接已复制：发送到手机后用浏览器打开并登录即可。", "info")
 
     def show_validation_error(self, text: str):
         """校验失败时把原因显示在当前模式的界面上。"""

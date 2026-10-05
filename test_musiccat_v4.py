@@ -573,6 +573,15 @@ class LoginDialogTests(unittest.TestCase):
         dialog.render_qr("https://music.163.com/login?keyuuid=test-unikey")
         self.assertTrue(dialog.qr_canvas.find_all(), "二维码应绘制出模块矩形")
 
+    def test_copy_qr_url_puts_link_on_clipboard(self):
+        app, mca, dialog = self._open_dialog()
+        dialog.update()
+        dialog.render_qr("https://music.163.com/login?keyuuid=test-unikey")
+        dialog.copy_qr_url()
+        self.assertEqual(dialog.clipboard_get(),
+                         "https://music.163.com/login?keyuuid=test-unikey")
+        self.assertIn("链接已复制", dialog.qr_status.get())
+
     def test_close_stops_polling(self):
         app, mca, dialog = self._open_dialog()
         dialog.update()

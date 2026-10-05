@@ -3,7 +3,7 @@
 Tkinter 版和 Qt 版界面共用本模块，避免 UI 层互相依赖。
 """
 APP_TITLE = "Music Cat"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 GITHUB_URL = "https://github.com/FallRain0905/ncm-bilibili-cat"
 
 AGREEMENT_VERSION = 1
